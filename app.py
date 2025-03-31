@@ -25,10 +25,10 @@ with st.sidebar:
     if st.button("Start Chat"):
         if gemini_key:
             try:
-                # Initialize chat
+                # Initialize chat with the updated model name
                 memory = ConversationBufferMemory(return_messages=True)
                 llm = ChatGoogleGenerativeAI(
-                    model="gemini-pro",
+                    model="gemini-1.5-pro",  # Updated model name
                     google_api_key=gemini_key
                 )
                 st.session_state.conversation = ConversationChain(
