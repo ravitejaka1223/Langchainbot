@@ -1,125 +1,84 @@
 import streamlit as st
+import os
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationChain
-from langchain.prompts import PromptTemplate
-import os
 
-# Page configuration
-st.set_page_config(page_title="Langchain Chatbot", page_icon="🤖")
-st.title("Langchain Chatbot")
+# Page setup
+st.set_page_config(page_title="Simple Chatbot", page_icon="🤖")
+st.title("Simple Chatbot")
 
-# Initialize session state
+# Initialize session state variables
 if "messages" not in st.session_state:
     st.session_state.messages = []
-if "conversation_memory" not in st.session_state:
-    st.session_state.conversation_memory = ConversationBufferMemory(return_messages=True)
-if "conversation_active" not in st.session_state:
-    st.session_state.conversation_active = False
-if "gemini_api_key" not in st.session_state:
-    st.session_state.gemini_api_key = ""
-if "openai_api_key" not in st.session_state:
-    st.session_state.openai_api_key = ""
+if "chat_active" not in st.session_state:
+    st.session_state.chat_active = False
 
-# Function to initialize the chatbot with Gemini
-def initialize_gemini_chat():
-    os.environ["GOOGLE_API_KEY"] = st.session_state.gemini_api_key
-    
-    # Create Gemini chat instance
-    prompt_template = """
-    You are a helpful and friendly assistant. The conversation history is:
-    {history}
-    Human: {input}
-    AI:"""
-    
-    PROMPT = PromptTemplate(
-        input_variables=["history", "input"], 
-        template=prompt_template
-    )
-    
-    llm = ChatGoogleGenerativeAI(model="gemini-pro")
-    
-    st.session_state.conversation = ConversationChain(
-        llm=llm, 
-        prompt=PROMPT,
-        memory=st.session_state.conversation_memory,
-        verbose=True
-    )
-    
-    st.session_state.conversation_active = True
-    st.success("Chatbot initialized! You can start chatting now.")
-
-# Function to generate a summary and sentiment analysis using OpenAI
-def get_conversation_summary():
-    os.environ["OPENAI_API_KEY"] = st.session_state.openai_api_key
-    
-    # Extract conversation history
-    history = ""
-    for message in st.session_state.messages:
-        role = "User" if message["role"] == "user" else "Assistant"
-        history += f"{role}: {message['content']}\n"
-    
-    # Create OpenAI instance
-    llm = ChatOpenAI(model="gpt-3.5-turbo")
-    
-    # Generate summary
-    summary_prompt = f"""
-    Please provide a summary of the following conversation in under 150 words:
-    
-    {history}
-    """
-    
-    summary_response = llm.invoke(summary_prompt)
-    
-    # Generate sentiment analysis
-    sentiment_prompt = f"""
-    Please provide a short sentiment analysis of the following conversation. 
-    Was it positive, negative, or neutral? What was the overall tone and mood?
-    
-    {history}
-    """
-    
-    sentiment_response = llm.invoke(sentiment_prompt)
-    
-    return summary_response.content, sentiment_response.content
-
-# API Key input
+# Sidebar for API keys
 with st.sidebar:
     st.header("API Keys")
+    gemini_key = st.text_input("Gemini API Key:", type="password")
+    openai_key = st.text_input("OpenAI API Key:", type="password")
     
-    # Gemini API Key
-    gemini_key = st.text_input("Enter your Gemini API Key:", type="password")
-    if gemini_key:
-        st.session_state.gemini_api_key = gemini_key
+    # Start chat button
+    if st.button("Start Chat"):
+        if gemini_key:
+            try:
+                # Initialize chat
+                memory = ConversationBufferMemory(return_messages=True)
+                llm = ChatGoogleGenerativeAI(
+                    model="gemini-pro",
+                    google_api_key=gemini_key
+                )
+                st.session_state.conversation = ConversationChain(
+                    llm=llm,
+                    memory=memory
+                )
+                st.session_state.chat_active = True
+                st.success("Chat started!")
+            except Exception as e:
+                st.error(f"Error starting chat: {e}")
+        else:
+            st.error("Please enter your Gemini API key")
     
-    # OpenAI API Key (for summary)
-    openai_key = st.text_input("Enter your OpenAI API Key (for summary):", type="password")
-    if openai_key:
-        st.session_state.openai_api_key = openai_key
-    
-    # Start button
-    if st.button("Start Chat") and st.session_state.gemini_api_key:
-        initialize_gemini_chat()
-    
-    # End button
-    if st.button("End Chat") and st.session_state.conversation_active:
-        if st.session_state.openai_api_key:
-            with st.spinner("Generating conversation summary..."):
-                summary, sentiment = get_conversation_summary()
+    # End chat button
+    if st.button("End Chat"):
+        if st.session_state.chat_active and openai_key:
+            try:
+                # Get conversation text
+                conversation_text = ""
+                for msg in st.session_state.messages:
+                    sender = "User" if msg["role"] == "user" else "Bot"
+                    conversation_text += f"{sender}: {msg['content']}\n"
+                
+                # Generate summary with OpenAI
+                openai_llm = ChatOpenAI(
+                    model="gpt-3.5-turbo",
+                    openai_api_key=openai_key
+                )
+                
+                summary_prompt = f"Summarize this conversation in under 150 words: {conversation_text}"
+                sentiment_prompt = f"Analyze the sentiment of this conversation (positive, negative, or neutral): {conversation_text}"
+                
+                summary = openai_llm.invoke(summary_prompt).content
+                sentiment = openai_llm.invoke(sentiment_prompt).content
+                
                 st.session_state.summary = summary
                 st.session_state.sentiment = sentiment
-                st.session_state.conversation_active = False
-        else:
-            st.error("Please provide an OpenAI API key for generating the summary.")
+                st.session_state.chat_active = False
+            except Exception as e:
+                st.error(f"Error generating summary: {e}")
+        elif not openai_key:
+            st.error("Please enter your OpenAI API key")
 
 # Display chat messages
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# Display summary and sentiment after ending chat
-if not st.session_state.conversation_active and "summary" in st.session_state:
+# Display summary if chat has ended
+if not st.session_state.chat_active and "summary" in st.session_state:
     st.header("Conversation Summary")
     st.write(st.session_state.summary)
     
@@ -127,21 +86,22 @@ if not st.session_state.conversation_active and "summary" in st.session_state:
     st.write(st.session_state.sentiment)
 
 # Chat input
-if st.session_state.conversation_active:
+if st.session_state.chat_active:
     user_input = st.chat_input("Type your message here...")
     if user_input:
-        # Add user message to chat history
+        # Add user message to chat
         st.session_state.messages.append({"role": "user", "content": user_input})
         with st.chat_message("user"):
             st.markdown(user_input)
         
-        # Generate response
+        # Get bot response
         with st.spinner("Thinking..."):
-            response = st.session_state.conversation.predict(input=user_input)
-            st.session_state.messages.append({"role": "assistant", "content": response})
-            
-        # Display assistant response
-        with st.chat_message("assistant"):
-            st.markdown(response)
+            try:
+                response = st.session_state.conversation.predict(input=user_input)
+                st.session_state.messages.append({"role": "assistant", "content": response})
+                with st.chat_message("assistant"):
+                    st.markdown(response)
+            except Exception as e:
+                st.error(f"Error: {e}")
 else:
-    st.info("Enter your Gemini API key and click 'Start Chat' to begin the conversation.")
+    st.info("Enter your API keys and click 'Start Chat' to begin")
